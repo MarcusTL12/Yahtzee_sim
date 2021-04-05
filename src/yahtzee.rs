@@ -3,9 +3,11 @@ use std::{
     ops::{Index, IndexMut},
 };
 
+use serde::{Deserialize, Serialize};
+
 use rand::prelude::*;
 
-#[derive(Debug)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct DiceThrow {
     dice: [u64; 6],
 }
@@ -67,12 +69,18 @@ impl Display for DiceThrow {
     }
 }
 
+impl From<[u64; 6]> for DiceThrow {
+    fn from(dice: [u64; 6]) -> Self {
+        Self { dice }
+    }
+}
+
 impl DiceThrow {
     fn new() -> Self {
         Self { dice: [0; 6] }
     }
 
-    pub fn roll(n: usize) -> Self {
+    pub fn throw(n: usize) -> Self {
         let mut dice_throw = Self::new();
 
         let mut rng = rand::thread_rng();
@@ -90,41 +98,19 @@ impl DiceThrow {
         self[N] * N
     }
 
-    // pub fn pairs<const N: usize>(&self) -> u64 {
-    //     let mut amt = 0;
-    //     let mut score = 0;
-
-    //     for i in (1..=6).rev() {
-    //         if self[i] >= 2 {
-    //             amt += 1;
-    //             score += 2 * i;
-    //         }
-
-    //         if amt == N {
-    //             return score;
-    //         }
-    //     }
-
-    //     0
-    // }
-
     pub fn pairs<const N: usize>(&self) -> u64 {
-        (1..=6)
+        let (score, amt) = (1..=6)
             .rev()
             .filter_map(|i| if self[i] >= 2 { Some(i * 2) } else { None })
             .take(N)
-            .sum()
+            .fold((0, 0), |(a, amt), x| (a + x, amt + 1));
+
+        if amt == N {
+            score
+        } else {
+            0
+        }
     }
-
-    // pub fn n_of_a_kind<const N: u64>(&self) -> u64 {
-    //     for i in (1..=6).rev() {
-    //         if self[i] >= N {
-    //             return i * N;
-    //         }
-    //     }
-
-    //     0
-    // }
 
     pub fn n_of_a_kind<const N: u64>(&self) -> u64 {
         (1..=6)
@@ -173,6 +159,95 @@ impl DiceThrow {
             }
         } else {
             0
+        }
+    }
+
+    pub fn test_all(&self) {
+        println!("1: {}", self.ammount_of::<1>());
+        println!("2: {}", self.ammount_of::<2>());
+        println!("3: {}", self.ammount_of::<3>());
+        println!("4: {}", self.ammount_of::<4>());
+        println!("5: {}", self.ammount_of::<5>());
+        println!("6: {}", self.ammount_of::<6>());
+        println!("--------");
+        println!("1 pair: {}", self.pairs::<1>());
+        println!("2 pair: {}", self.pairs::<2>());
+        println!("3 pair: {}", self.pairs::<3>());
+        println!("3 of a kind: {}", self.n_of_a_kind::<3>());
+        println!("4 of a kind: {}", self.n_of_a_kind::<4>());
+        println!("5 of a kind: {}", self.n_of_a_kind::<5>());
+        println!("Small straight: {}", self.straight::<1, 5>());
+        println!("Large straight: {}", self.straight::<2, 6>());
+        println!("Full  straight: {}", self.straight::<1, 6>());
+        println!("Hut:   {}", self.building::<3, 2>());
+        println!("House: {}", self.building::<3, 3>());
+        println!("Tower: {}", self.building::<4, 2>());
+        println!("Chance: {}", self.chance());
+        println!("Yahtzee: {}", self.yahtzee());
+    }
+
+    pub fn into_sub_throw_iter(self) -> SubThrowIter {
+        SubThrowIter::from(self)
+    }
+
+    pub fn amt_dice(&self) -> u64 {
+        (1..=6).map(|i| self[i]).sum()
+    }
+
+    pub fn probability(&self) -> f64 {
+        let amt_dice = self.amt_dice();
+
+        let tot = 6u64.pow(amt_dice as u32);
+
+        let perms: u64 = factorial(amt_dice);
+
+        let dup_perms: u64 = (1..=6).map(|i| factorial(self[i])).product();
+
+        let actual_perms = perms / dup_perms;
+
+        (actual_perms as f64) / (tot as f64)
+    }
+}
+
+fn factorial(n: u64) -> u64 {
+    (2..=n).product()
+}
+
+pub struct SubThrowIter {
+    done: bool,
+    dice: DiceThrow,
+    sub_throw: DiceThrow,
+}
+
+impl From<DiceThrow> for SubThrowIter {
+    fn from(dice: DiceThrow) -> Self {
+        SubThrowIter {
+            done: false,
+            dice,
+            sub_throw: DiceThrow::from([0; 6]),
+        }
+    }
+}
+
+impl Iterator for SubThrowIter {
+    type Item = DiceThrow;
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.done {
+            None
+        } else {
+            let ans = Some(self.sub_throw.clone());
+            for i in 1..=6 {
+                if self.sub_throw[i] < self.dice[i] {
+                    self.sub_throw[i] += 1;
+                    break;
+                } else {
+                    self.sub_throw[i] = 0;
+                    if i == 6 {
+                        self.done = true;
+                    }
+                }
+            }
+            ans
         }
     }
 }
