@@ -1,3 +1,9 @@
+pub mod yahtzee;
+
+use yahtzee::DiceThrow;
+
 fn main() {
-    println!("Hello, world!");
+    let throw = DiceThrow::roll(6);
+
+    println!("{}", throw);
 }
