@@ -1,13 +1,22 @@
+// #![allow(incomplete_features)]
+// #![feature(const_generics)]
+// #![feature(const_evaluatable_checked)]
+
 use core::panic;
 use std::env;
 
 use yahtzee::DiceThrow;
+use yahtzee_free_strats::test;
+use yahtzee_guide::start;
 use yahtzee_strats::{
     cache_all_tables, get_yahtzee_index, load_all_tables, make_all_tables,
 };
 
 pub mod yahtzee;
+pub mod yahtzee_free_strats;
+pub mod yahtzee_guide;
 pub mod yahtzee_strats;
+pub mod bitfield_array_file;
 
 const HELP_MSG: &str = r#"
 commands:
@@ -16,9 +25,12 @@ compute-strats <N>: compute and cache the strats for <N> dice
 give-best-roll <N> <cell> <throws-left> <dice>: gives the best roll for a
     the given cell and dice. Write <dice> as 314156; order does not matter.
     For list of cell names run command: help-cell-names.
+guide-free-game <N>: Starts an interactive session to guide through free game
+    with <N> dice.
+test: current test
 "#;
 
-const HELP_CELL_NAMES: &str = r#"
+pub const HELP_CELL_NAMES: &str = r#"
 ones/enere...       => 1s - 6s
 pairs/par           => 1p - 3p
 of a kind / like    => 1l - 5l
@@ -47,12 +59,12 @@ fn give_best_roll<const N: u64>(cell: &str, throws_left: usize, dice: &str) {
 
     let cell_ind = get_yahtzee_index::<N>(cell);
 
-    let sub_throw = strats[throws_left - 1][cell_ind].get(&throw).unwrap();
+    let sub_throw = strats[throws_left][cell_ind].get(&throw).unwrap();
 
     println!(
         "Rethrow:\n{}\nwith expected score of: {}",
         sub_throw,
-        scores[throws_left - 1][cell_ind].get(&throw).unwrap()
+        scores[throws_left][cell_ind].get(&throw).unwrap()
     );
 }
 
@@ -87,6 +99,15 @@ fn main() {
                 }
             }
             "help-cell-names" => println!("{}", HELP_CELL_NAMES),
+            "guide-free-game" => {
+                match &args.get(2).and_then(|x| Some(x.as_str())) {
+                    Some("5") => start::<5>(),
+                    Some("6") => start::<6>(),
+                    None => panic!("Must give number of dice (5/6)!"),
+                    _ => unimplemented!("Invalid number of dice!"),
+                }
+            }
+            "test" => test(),
             _ => unimplemented!("Invalid command: {}!", command),
         };
     } else {

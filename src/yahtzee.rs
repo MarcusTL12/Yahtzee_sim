@@ -162,6 +162,32 @@ impl DiceThrow {
         }
     }
 
+    pub fn cell_score<const N: u64>(&self, cell_ind: usize) -> u64 {
+        match (N, cell_ind) {
+            (_, 0) => self.ammount_of::<1>(),
+            (_, 1) => self.ammount_of::<2>(),
+            (_, 2) => self.ammount_of::<3>(),
+            (_, 3) => self.ammount_of::<4>(),
+            (_, 4) => self.ammount_of::<5>(),
+            (_, 5) => self.ammount_of::<6>(),
+            (_, 6) => self.pairs::<1>(),
+            (_, 7) => self.pairs::<2>(),
+            (6, 8) => self.pairs::<3>(),
+            (5, 8) | (6, 9) => self.n_of_a_kind::<3>(),
+            (5, 9) | (6, 10) => self.n_of_a_kind::<4>(),
+            (6, 11) => self.n_of_a_kind::<5>(),
+            (5, 10) | (6, 12) => self.straight::<1, 5>(),
+            (5, 11) | (6, 13) => self.straight::<2, 6>(),
+            (6, 14) => self.straight::<1, 6>(),
+            (5, 12) | (6, 15) => self.building::<3, 2>(),
+            (6, 16) => self.building::<3, 3>(),
+            (6, 17) => self.building::<4, 2>(),
+            (5, 13) | (6, 18) => self.chance(),
+            (5, 14) | (6, 19) => self.yahtzee(),
+            _ => unreachable!(),
+        }
+    }
+
     pub fn test_all(&self) {
         println!("1: {}", self.ammount_of::<1>());
         println!("2: {}", self.ammount_of::<2>());

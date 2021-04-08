@@ -1,4 +1,7 @@
-use std::{collections::HashMap, fs::{self, create_dir_all, write}};
+use std::{
+    collections::HashMap,
+    fs::{self, create_dir_all, write},
+};
 
 use super::yahtzee::DiceThrow;
 
@@ -179,7 +182,7 @@ pub fn make_all_tables<const N: u64>() -> (
 ) {
     let mut scores = vec![make_init_score_tables::<N>()];
 
-    let mut strats: Vec<Vec<_>> = Vec::new();
+    let mut strats: Vec<Vec<_>> = vec![Vec::new()];
 
     for _ in 0..2 {
         strats.push(
@@ -201,8 +204,6 @@ pub fn make_all_tables<const N: u64>() -> (
                 .collect(),
         );
     }
-
-    scores.remove(0);
 
     (scores, strats)
 }
@@ -256,10 +257,97 @@ pub fn get_yahtzee_index<const N: u64>(name: &str) -> usize {
         (6, "ht") => 15,
         (6, "hs") => 16,
         (6, "tr") => 17,
-        (5, "ch"|"sj") => 13,
-        (6, "ch"|"sj") => 18,
+        (5, "ch" | "sj") => 13,
+        (6, "ch" | "sj") => 18,
         (5, "yz") => 14,
         (6, "yz") => 19,
         _ => unreachable!(),
     }
+}
+
+pub fn get_index_name<const N: u64>(ind: usize) -> &'static str {
+    match (N, ind) {
+        (_, 0) => "ones",
+        (_, 1) => "twos",
+        (_, 2) => "threes",
+        (_, 3) => "fours",
+        (_, 4) => "fives",
+        (_, 5) => "sixes",
+        (_, 6) => "1 pair",
+        (_, 7) => "2 pairs",
+        (6, 8) => "3 pairs",
+        (5, 8) | (6, 9) => "3 of a kind",
+        (5, 9) | (6, 10) => "4 of a kind",
+        (6, 11) => "5 of a kind",
+        (5, 10) | (6, 12) => "small straight",
+        (5, 11) | (6, 13) => "large straight",
+        (6, 14) => "full straight",
+        (6, 15) => "hut",
+        (5, 12) | (6, 16) => "house",
+        (6, 17) => "tower",
+        (5, 13) | (6, 18) => "chance",
+        (5, 14) | (6, 19) => "yahtzee",
+        _ => unreachable!(),
+    }
+}
+
+pub fn effective_score<const N: u64>(
+    scores: &Vec<HashMap<DiceThrow, f64>>,
+    throw: &DiceThrow,
+    points_above: u64,
+    cell_ind: usize,
+) -> f64 {
+    let bonus_bias = match N {
+        5 => 1.0,
+        6 => 1.5,
+        _ => unreachable!(),
+    };
+
+    let bonus_offset = match N {
+        5 => 1.0,
+        6 => 1.5,
+        _ => unreachable!(),
+    };
+
+    let bonus_objective = (cell_ind + 1) as f64
+        * match N {
+            5 => 3.0,
+            6 => 4.0,
+            _ => unreachable!(),
+        };
+
+    let score = scores[cell_ind].get(throw).unwrap();
+
+    score
+        * if cell_ind <= 5 {
+            (score + points_above as f64 - bonus_objective + bonus_offset)
+                * bonus_bias
+        } else {
+            1.0
+        }
+        - if matches!((N, cell_ind), (5, 13) | (6, 18)) {
+            match N {
+                5 => 50.0,
+                6 => 100.0,
+                _ => unreachable!(),
+            }
+        } else {
+            0.0
+        }
+}
+
+pub fn find_best_cell<const N: u64>(
+    scores: &Vec<HashMap<DiceThrow, f64>>,
+    throw: &DiceThrow,
+    points: &[Option<u64>],
+) -> usize {
+    let points_above = points.iter().take(6).filter_map(|x| x.as_ref()).sum();
+    let ind = (0..scores.len())
+        .filter(|&i| points[i].is_none())
+        .map(|i| (i, effective_score::<N>(scores, throw, points_above, i)))
+        .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap())
+        .unwrap()
+        .0;
+
+    ind
 }

@@ -10,3 +10,4 @@ edition = "2018"
 rand = ""
 serde = {version = "", features = ["derive"]}
 bincode = ""
+once_cell = ""
