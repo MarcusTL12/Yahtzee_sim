@@ -46,7 +46,7 @@ impl Iterator for DiceIter {
     }
 }
 
-fn new_throw(
+pub fn new_throw(
     orig_dice: &DiceThrow,
     sub_throw: &DiceThrow,
     new: &DiceThrow,

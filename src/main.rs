@@ -6,17 +6,18 @@ use core::panic;
 use std::env;
 
 use yahtzee::DiceThrow;
-use yahtzee_free_strats::test;
 use yahtzee_guide::start;
+use yahtzee_simulation::{simulate_single_game, simulate_multiple};
 use yahtzee_strats::{
     cache_all_tables, get_yahtzee_index, load_all_tables, make_all_tables,
 };
 
+pub mod bitfield_array_file;
 pub mod yahtzee;
 pub mod yahtzee_free_strats;
 pub mod yahtzee_guide;
+pub mod yahtzee_simulation;
 pub mod yahtzee_strats;
-pub mod bitfield_array_file;
 
 const HELP_MSG: &str = r#"
 commands:
@@ -70,6 +71,7 @@ fn give_best_roll<const N: u64>(cell: &str, throws_left: usize, dice: &str) {
 
 fn main() {
     let args: Vec<_> = env::args().collect();
+    let refargs: Vec<_> = args.iter().map(|x| x.as_str()).collect();
 
     if let Some(command) = args.get(1) {
         match command.as_str() {
@@ -107,10 +109,46 @@ fn main() {
                     _ => unimplemented!("Invalid number of dice!"),
                 }
             }
-            "test" => test(),
-            _ => unimplemented!("Invalid command: {}!", command),
+            "compute-all-strats" => {
+                if let Some(command) = args.get(2) {
+                    match command.as_str() {
+                        "test" => yahtzee_free_strats::test(&refargs[3..]),
+                        "init" => yahtzee_free_strats::init(&args[3]),
+                        "resume" => match args[3].as_str() {
+                            "5" => yahtzee_free_strats::resume_calcs_5(
+                                args[4].parse().unwrap(),
+                                args[5].parse().unwrap(),
+                            ),
+                            "6" => yahtzee_free_strats::resume_calcs_6(
+                                args[4].parse().unwrap(),
+                                args[5].parse().unwrap(),
+                            ),
+                            _ => unreachable!(),
+                        },
+                        _ => println!("invalid command"),
+                    }
+                } else {
+                    println!("Give command");
+                }
+            }
+            "simulate-single" => {
+                match &args.get(2).and_then(|x| Some(x.as_str())) {
+                    Some("5") => simulate_single_game::<5>(),
+                    Some("6") => simulate_single_game::<6>(),
+                    _ => panic!("Must give number of dice (5/6)!"),
+                }
+            }
+            "simulate-multiple" => {
+                let n = args[3].parse().unwrap();
+                match &args.get(2).and_then(|x| Some(x.as_str())) {
+                    Some("5") => simulate_multiple::<5>(n),
+                    Some("6") => simulate_multiple::<6>(n),
+                    _ => panic!("Must give number of dice (5/6)!"),
+                }
+            }
+            _ => println!("Invalid command: {}!", command),
         };
     } else {
-        panic!("No command given");
+        println!("No command given");
     }
 }

@@ -11,3 +11,7 @@ rand = ""
 serde = {version = "", features = ["derive"]}
 bincode = ""
 once_cell = ""
+num-integer = ""
+num-traits = ""
+num_cpus = ""
+crossbeam-channel = ""

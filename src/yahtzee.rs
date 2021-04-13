@@ -233,6 +233,13 @@ impl DiceThrow {
 
         (actual_perms as f64) / (tot as f64)
     }
+
+    pub fn into_ordered_dice<'a>(&'a self) -> impl Iterator<Item = u64> + 'a {
+        self.dice
+            .iter()
+            .enumerate()
+            .flat_map(|(i, &amt)| (0..amt).map(move |_| (i as u64) + 1))
+    }
 }
 
 fn factorial(n: u64) -> u64 {
