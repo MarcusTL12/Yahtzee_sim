@@ -1,8 +1,9 @@
 use std::{
-    collections::{HashMap, VecDeque},
+    collections::{HashMap, HashSet, VecDeque},
     fs::{create_dir_all, read_to_string, File, OpenOptions},
-    io::{BufWriter, Read, Write},
+    io::{BufRead, BufReader, BufWriter, Read, Write},
     path::Path,
+    process::Command,
     thread::{sleep, spawn},
     time::{Duration, Instant},
 };
@@ -272,14 +273,29 @@ fn make_rethrows_and_scores<const N: u64, const BITS: usize>(
 
     let (index_s, index_r) = crossbeam_channel::unbounded();
 
-    for points_above in 0..amt_points_above::<N>() {
+    let complete = if Path::new("resume.txt").exists() {
+        BufReader::new(File::open("resume.txt").unwrap())
+            .lines()
+            .map(|l| l.unwrap().parse::<usize>().unwrap())
+            .collect()
+    } else {
+        HashSet::new()
+    };
+
+    for points_above in
+        (0..amt_points_above::<N>()).filter(|i| !complete.contains(i))
+    {
         index_s.send(points_above).unwrap();
     }
 
     let (done_s, done_r) = crossbeam_channel::unbounded();
 
+    let (points_done_s, points_done_r) = crossbeam_channel::unbounded();
+
     let progress_handle = spawn(move || {
-        let mut i = 0;
+        let mut i = amt_cell_ind::<N>(free_cells)
+            * amt_dice_index::<N>()
+            * complete.len();
         let mut timer = Instant::now();
         let mut paused = 0;
         let mut to_be_paused;
@@ -289,7 +305,16 @@ fn make_rethrows_and_scores<const N: u64, const BITS: usize>(
         let mut speed_buffer = VecDeque::new();
         let mut threads_buffer = VecDeque::new();
         let mut current_counter;
-        while i < n {
+        let mut done_file = OpenOptions::new()
+            .create(true)
+            .truncate(true)
+            .write(true)
+            .open("resume.txt")
+            .unwrap();
+        for x in complete {
+            writeln!(done_file, "{}", x).unwrap();
+        }
+        while amt_done < *NUM_CPUS {
             current_counter = progress_r.try_iter().sum::<usize>();
             speed_buffer.push_back(current_counter);
             if speed_buffer.len() > SPEED_BUFFER_SIZE {
@@ -335,11 +360,16 @@ fn make_rethrows_and_scores<const N: u64, const BITS: usize>(
                 amt_done += 1;
             }
 
+            for done_ind in points_done_r.try_iter() {
+                writeln!(done_file, "{}", done_ind).unwrap();
+            }
+
             if paused != *NUM_CPUS {
                 let speed = speed_buffer.iter().sum::<usize>() as f32
                     / (printerval.as_secs_f32() * speed_buffer.len() as f32);
 
-                let speed_per_thread = if threads_buffer.iter().all(|&x| x > 0) {
+                let speed_per_thread = if threads_buffer.iter().all(|&x| x > 0)
+                {
                     speed_buffer
                         .iter()
                         .zip(threads_buffer.iter())
@@ -350,13 +380,37 @@ fn make_rethrows_and_scores<const N: u64, const BITS: usize>(
                     0.0
                 };
 
+                let amt_threads =
+                    threads_buffer.iter().map(|&x| x as f32).sum::<f32>()
+                        / threads_buffer.len() as f32;
+
+                let eta = (n - i) as f32 / speed;
+
+                let eta = match eta {
+                    eta if eta < 60.0 => format!("{:.2} s", eta),
+                    eta if eta < 3600.0 => {
+                        format!(
+                            "{}m:{:2}s",
+                            (eta / 60.0) as u64,
+                            eta as u64 % 60
+                        )
+                    }
+                    _ => format!(
+                        "{}h:{:2}m",
+                        (eta / 3600.0) as u64,
+                        (eta / 60.0) as u64 % 60
+                    ),
+                };
+
                 println!(
-                    "{} / {} = {:.2}%       speed = {:.1}       speed per thread = {:.1}",
+                    "{} / {} = {:.2}%    speed = {:.1}; {:.1} x {:.1}    eta = {}",
                     i,
                     n,
                     (i as f32) / (n as f32) * 100.0,
                     speed,
-                    speed_per_thread
+                    speed_per_thread,
+                    amt_threads,
+                    eta,
                 );
             }
 
@@ -365,6 +419,8 @@ fn make_rethrows_and_scores<const N: u64, const BITS: usize>(
                 timer += printerval;
             }
         }
+
+        done_file.flush().unwrap();
     });
 
     let handles: Vec<_> = (0..*NUM_CPUS)
@@ -377,6 +433,7 @@ fn make_rethrows_and_scores<const N: u64, const BITS: usize>(
             let mut paused = false;
             let index_r = index_r.clone();
             let done_s = done_s.clone();
+            let points_done_s = points_done_s.clone();
             spawn(move || {
                 let mut count = 0;
                 let mut timer = Instant::now();
@@ -450,6 +507,11 @@ fn make_rethrows_and_scores<const N: u64, const BITS: usize>(
                     }
                     scores_file.flush().unwrap();
                     strats_file.flush();
+                    points_done_s.send(points_above).unwrap();
+
+                    if Path::new("wrap_up_temp").exists() {
+                        break;
+                    }
                 }
 
                 progress_s.send(count).unwrap();
@@ -463,6 +525,21 @@ fn make_rethrows_and_scores<const N: u64, const BITS: usize>(
     }
 
     progress_handle.join().unwrap();
+
+    let complete = if Path::new("resume.txt").exists() {
+        BufReader::new(File::open("resume.txt").unwrap())
+            .lines()
+            .map(|l| l.unwrap().parse::<usize>().unwrap())
+            .collect()
+    } else {
+        HashSet::new()
+    };
+
+    if (0..amt_points_above::<N>()).all(|i| complete.contains(&i)) {
+        match std::fs::remove_file(Path::new("resume.txt")) {
+            _ => (),
+        }
+    }
 
     println!("took {:?}\n", supertimer.elapsed());
 }
@@ -509,7 +586,7 @@ fn make_cell_choice_and_scores<const N: u64, const BITS: usize>(
         scores_buf.push(load_scores::<N>(free_cells - 1, 2, points_above));
     }
 
-    let mut i = 0;
+    let mut i: u64 = 0;
     let n = amt_cell_ind::<N>(free_cells)
         * amt_points_above::<N>()
         * amt_dice_index::<N>();
@@ -708,26 +785,54 @@ fn get_dice_from_bits(orig_dice: &DiceThrow, bits: &[bool]) -> DiceThrow {
     dice
 }
 
+fn cache_compressed_strats<const N: u64>(
+    free_cells: usize,
+    throws_left: usize,
+    points_above: usize,
+) {
+    Command::new("7z")
+        .arg("x")
+        .arg(Path::new(&*LOOKUP_PATH).join(format!("{}/strats.7z", N)))
+        .arg(format!(
+            "{}_{}/{}.bin",
+            free_cells, throws_left, points_above
+        ))
+        .arg(format!("-olookup/tmp/{}/strats/", N))
+        .output()
+        .unwrap();
+}
+
 pub fn get_rethrow_strat<const N: u64>(
     cells: &[bool],
     dice: &DiceThrow,
     throws_left: usize,
     points_above: u64,
 ) -> DiceThrow {
+    let local = Path::new("compressed").exists();
+
+    let lookup_path = if local {
+        Path::new("lookup/tmp")
+    } else {
+        Path::new(&*LOOKUP_PATH)
+    };
+
+    let points_above = if points_above as usize + 1 >= amt_points_above::<N>() {
+        amt_points_above::<N>() - 1
+    } else {
+        points_above as usize
+    };
+
     let free_cells = cells.iter().filter(|&&b| b).count();
     let &cell_ind = CELLS[n_to_ind::<N>()].1[free_cells].get(cells).unwrap();
     let ind = get_index::<N>(dice, cell_ind);
-    let path = Path::new(&*LOOKUP_PATH).join(format!(
+    let path = lookup_path.join(format!(
         "{}/strats/{}_{}/{}.bin",
-        N,
-        free_cells,
-        throws_left,
-        if points_above as usize + 1 >= amt_points_above::<N>() {
-            amt_points_above::<N>() - 1
-        } else {
-            points_above as usize
-        }
+        N, free_cells, throws_left, points_above,
     ));
+
+    if !path.exists() {
+        cache_compressed_strats::<N>(free_cells, throws_left, points_above);
+    }
 
     let rethrow = match N {
         5 => get_dice_from_bits(
@@ -763,19 +868,31 @@ pub fn get_cell_strat<const N: u64>(
     dice: &DiceThrow,
     points_above: u64,
 ) -> usize {
+    let local = Path::new("compressed").exists();
+
+    let lookup_path = if local {
+        Path::new("lookup/tmp/")
+    } else {
+        Path::new(&*LOOKUP_PATH)
+    };
+
+    let points_above = if points_above as usize + 1 >= amt_points_above::<N>() {
+        amt_points_above::<N>() - 1
+    } else {
+        points_above as usize
+    };
+
     let free_cells = cells.iter().filter(|&&b| b).count();
     let &cell_ind = CELLS[n_to_ind::<N>()].1[free_cells].get(cells).unwrap();
     let ind = get_index::<N>(dice, cell_ind);
-    let path = Path::new(&*LOOKUP_PATH).join(format!(
+    let path = lookup_path.join(format!(
         "{}/strats/{}_0/{}.bin",
-        N,
-        free_cells,
-        if points_above as usize + 1 >= amt_points_above::<N>() {
-            amt_points_above::<N>() - 1
-        } else {
-            points_above as usize
-        }
+        N, free_cells, points_above
     ));
+
+    if !path.exists() {
+        cache_compressed_strats::<N>(free_cells, 0, points_above);
+    }
 
     match N {
         5 => get_ind_from_bits(&bitfield_array_file::get_bits::<_, 4>(
