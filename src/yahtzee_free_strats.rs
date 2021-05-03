@@ -1,7 +1,7 @@
 use std::{
     collections::{HashMap, HashSet, VecDeque},
-    fs::{create_dir_all, read_to_string, File, OpenOptions},
-    io::{BufRead, BufReader, BufWriter, Read, Write},
+    fs::{create_dir_all, read_to_string, remove_file, File, OpenOptions},
+    io::{BufRead, BufReader, BufWriter, Read, Seek, SeekFrom, Write},
     path::Path,
     process::Command,
     thread::{sleep, spawn},
@@ -28,6 +28,9 @@ static NUM_CPUS: Lazy<usize> = Lazy::new(|| {
 
 static LOOKUP_PATH: Lazy<String> =
     Lazy::new(|| read_to_string("lookup_path.txt").unwrap());
+
+static SCORES_PATH: Lazy<String> =
+    Lazy::new(|| read_to_string("scores_path.txt").unwrap());
 
 static CELLS: Lazy<Vec<(Vec<Vec<Vec<bool>>>, Vec<HashMap<Vec<bool>, usize>>)>> =
     Lazy::new(|| {
@@ -757,7 +760,7 @@ pub fn resume_calcs_6(mut free_cells: usize, throws_left: usize) {
         return;
     }
 
-    for free_cells in free_cells..=15 {
+    for free_cells in free_cells..=20 {
         make_cell_choice_and_scores::<6, 5>(free_cells);
         if Path::new("wrap_up").exists() {
             break;
@@ -903,6 +906,51 @@ pub fn get_cell_strat<const N: u64>(
         )),
         _ => unimplemented!(),
     }
+}
+
+pub fn get_score<const N: u64>(
+    cells: &[bool],
+    dice: &DiceThrow,
+    points_above: u64,
+    throws_left: usize,
+) -> f32 {
+    let free_cells = cells.iter().map(|&x| x).count();
+    let ans = {
+        Command::new("7z")
+            .arg("x")
+            .arg(Path::new(&*SCORES_PATH).join(format!("{}/scores.7z", N)))
+            .arg(format!(
+                "{}_{}/{}.bin",
+                free_cells, throws_left, points_above
+            ))
+            .arg(format!("-otmp/{}/scores/", N))
+            .output()
+            .unwrap();
+
+        let &cell_ind =
+            CELLS[n_to_ind::<N>()].1[free_cells].get(cells).unwrap();
+        let ind = get_index::<N>(dice, cell_ind);
+
+        let mut f = File::open(format!(
+            "./tmp/{}/scores/{}_{}/{}.bin",
+            N, free_cells, throws_left, points_above
+        ))
+        .unwrap();
+
+        f.seek(SeekFrom::Start(ind as u64 * 4)).unwrap();
+        let mut bytes = [0; 4];
+        f.read(&mut bytes).unwrap();
+
+        f32::from_le_bytes(bytes)
+    };
+
+    remove_file(format!(
+        "./tmp/{}/scores/{}_{}/{}.bin",
+        N, free_cells, throws_left, points_above
+    ))
+    .unwrap();
+
+    ans
 }
 
 pub fn test(_commands: &[&str]) {}

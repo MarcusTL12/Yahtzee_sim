@@ -8,7 +8,7 @@ use std::{
 use num_traits::Num;
 
 use crate::{
-    yahtzee_free_strats::{get_cell_strat, get_rethrow_strat},
+    yahtzee_free_strats::{get_cell_strat, get_rethrow_strat, get_score},
     yahtzee_strats::{get_index_name, new_throw},
     DiceThrow, HELP_CELL_NAMES,
 };
@@ -43,6 +43,8 @@ pub fn display_points<
     const N: u64,
 >(
     points: &Vec<Option<T>>,
+    prec_bonus: Option<T>,
+    prec_sum: Option<T>,
 ) {
     let ind = &mut 0;
     println!("ones              = {}", tostr(points, ind));
@@ -70,7 +72,11 @@ pub fn display_points<
         0
     };
 
-    let bonus: T = (0..bonus).map(|_| T::one()).sum();
+    let bonus: T = if let Some(b) = prec_bonus {
+        b
+    } else {
+        (0..bonus).map(|_| T::one()).sum()
+    };
 
     println!("sum               = {}", above);
     println!("bonus             = {}", bonus);
@@ -99,8 +105,37 @@ pub fn display_points<
     println!("------------------------------------");
     println!(
         "Total             = {}\n",
-        bonus + points.iter().filter_map(|x| x.clone()).sum()
+        if let Some(s) = prec_sum {
+            s
+        } else {
+            bonus + points.iter().filter_map(|x| x.clone()).sum()
+        }
     );
+}
+
+fn get_total_score<const N: u64>(points: &[Option<u64>]) -> u64 {
+    let points_above: u64 =
+        points.iter().take(6).filter_map(|x| x.as_ref()).sum();
+
+    let bonus_objective = match N {
+        5 => 63,
+        6 => 84,
+        _ => unreachable!(),
+    };
+
+    let bonus = if points_above >= bonus_objective {
+        match N {
+            5 => 50,
+            6 => 100,
+            _ => unreachable!(),
+        }
+    } else {
+        0
+    };
+
+    let total = bonus + points.iter().filter_map(|x| x.as_ref()).sum::<u64>();
+
+    total
 }
 
 pub fn start<const N: u64>() {
@@ -135,12 +170,14 @@ pub fn start<const N: u64>() {
             ["help"] => println!("{}", HELP_MSG),
             ["help", "cell", "names"] => println!("{}", HELP_CELL_NAMES),
             ["exit" | "q"] => break,
-            ["display", "points"] => display_points::<_, N>(&points),
+            ["display", "points"] => {
+                display_points::<_, N>(&points, None, None)
+            }
             ["set", "points", cell, pts] => {
                 let index = super::get_yahtzee_index::<N>(cell);
                 let pts = pts.parse().unwrap();
                 points[index] = Some(pts);
-                display_points::<_, N>(&points);
+                display_points::<_, N>(&points, None, None);
             }
             ["clear", "points", cell] => {
                 let index = super::get_yahtzee_index::<N>(cell);
@@ -179,7 +216,7 @@ pub fn start<const N: u64>() {
                     );
 
                     points[ind] = Some(score);
-                    display_points::<_, N>(&points);
+                    display_points::<_, N>(&points, None, None);
 
                     last_dice = DiceThrow::throw(N as usize);
                     throws_left = 2;
@@ -250,6 +287,37 @@ pub fn start<const N: u64>() {
                     }
                     _ => unreachable!(),
                 }
+            }
+            ["expected-remaining"] => {
+                let free_cells: Vec<_> =
+                    points.iter().map(|x| x.is_none()).collect();
+                let points_above =
+                    points.iter().take(6).filter_map(|x| x.as_ref()).sum();
+                let rem_score = get_score::<N>(
+                    &free_cells,
+                    &last_dice,
+                    points_above,
+                    throws_left,
+                );
+
+                println!("expected remaining score is {}", rem_score);
+            }
+            ["expected-total"] => {
+                let free_cells: Vec<_> =
+                    points.iter().map(|x| x.is_none()).collect();
+                let points_above =
+                    points.iter().take(6).filter_map(|x| x.as_ref()).sum();
+                let rem_score = get_score::<N>(
+                    &free_cells,
+                    &last_dice,
+                    points_above,
+                    throws_left,
+                );
+
+                let tot_score =
+                    get_total_score::<N>(&points) as f32 + rem_score;
+
+                println!("expected total score is {}", tot_score);
             }
             ["reset"] => {
                 points = vec![

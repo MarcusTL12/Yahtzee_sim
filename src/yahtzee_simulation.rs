@@ -54,7 +54,7 @@ pub fn simulate_single_game<const N: u64>() {
 
     simulate_game::<N>(&mut points, &mut free_cells);
 
-    display_points::<_, N>(&points);
+    display_points::<_, N>(&points, None, None);
 }
 
 pub fn simulate_multiple<const N: u64>(n: usize) {
@@ -63,10 +63,22 @@ pub fn simulate_multiple<const N: u64>(n: usize) {
         6 => 20,
         _ => unreachable!(),
     };
+    let bonus_objective = match N {
+        5 => 63,
+        6 => 84,
+        _ => unreachable!(),
+    };
+    let bonus_amt = match N {
+        5 => 50,
+        6 => 100,
+        _ => unreachable!(),
+    };
     let mut points = vec![None; cells];
     let mut free_cells = vec![true; cells];
 
     let mut averages = vec![Some(0.0); cells];
+    let mut avg_bonus = 0.0;
+    let mut avg_sum = 0.0;
 
     let mut timer = Instant::now();
 
@@ -84,6 +96,26 @@ pub fn simulate_multiple<const N: u64>(n: usize) {
         }
         simulate_game::<N>(&mut points, &mut free_cells);
 
+        let bonus = if points
+            .iter()
+            .take(6)
+            .filter_map(|x| x.as_ref())
+            .sum::<u64>()
+            >= bonus_objective
+        {
+            bonus_amt
+        } else {
+            0
+        };
+
+        avg_bonus += bonus as f32;
+
+        avg_sum += (bonus as f32)
+            + points
+                .iter()
+                .filter_map(|x| x.and_then(|x| Some(x as f32)))
+                .sum::<f32>();
+
         for (a, x) in averages.iter_mut().zip(points.iter()) {
             if let &Some(x) = x {
                 if let Some(a) = a {
@@ -99,5 +131,8 @@ pub fn simulate_multiple<const N: u64>(n: usize) {
         }
     }
 
-    display_points::<_, N>(&averages);
+    avg_bonus /= n as f32;
+    avg_sum /= n as f32;
+
+    display_points::<_, N>(&averages, Some(avg_bonus), Some(avg_sum));
 }
